@@ -2,36 +2,38 @@ from pika import PlainCredentials, ConnectionParameters, BlockingConnection, Bas
 from traceback import format_exc
 from time import sleep
 from types import FunctionType
-from ..apply_decorators_on_cls_methods_decorators import apply_decorators_on_cls_methods_decorators
-from ..loggingUtils.logger_decorator import logger_decorator
-import stg
+from utils_common.exit_ import exit_
+
+try:
+    from .stg import STG, report
+except ImportError:
+    from stg import STG, report
 
 
-# @apply_decorators_on_cls_methods_decorators((logger_decorator, (), {}))
 class RabbitMQ:
     def __init__(self,
-                 username: str = None,
-                 password: str = None,
-                 host: str = None,
-                 port: int = None,
-                 virtual_host: str = None,
-                 prefetch_count: int = None,
-                 queue_name: str = '',
-                 is_durable: bool = None,
+                 username: str = STG.BROKER["username"],
+                 password: str = STG.BROKER["password"],
+                 host: str = STG.BROKER["host"],
+                 port: int = STG.BROKER["port"],
+                 virtual_host: str = STG.BROKER["virtual_host"],
+                 prefetch_count: int = STG.BROKER["prefetch_count"],
+                 queue_name: str = STG.BROKER["publish_queue_name"],
+                 is_durable: bool = STG.BROKER["is_durable"],
                  callback_function: FunctionType = None,
-                 heartbeat: int = None):
+                 heartbeat: int = STG.BROKER["heartbeat"]):
 
-        self.username = username or stg.BROKER_DETAILS.get('username')
-        self.password = password or stg.BROKER_DETAILS['password']
-        self.host = host or f"{stg.BROKER_DETAILS['host']}"
-        self.port = port or int(stg.BROKER_DETAILS['port'])
-        self.virtual_host = virtual_host or stg.BROKER_DETAILS['vhost']
-        self.prefetch_count = prefetch_count or stg.PREFETCH_COUNT
+        self.username = username
+        self.password = password
+        self.host = host
+        self.port = port
+        self.virtual_host = virtual_host
+        self.prefetch_count = prefetch_count
         self.queue = queue_name
-        self.durable = is_durable if is_durable is not None else stg.IS_DURABLE
+        self.durable = is_durable
         self.callback_function = \
             lambda ch, method, properties, body: callback_function(ch, method, properties, body, self)
-        self.heartbeat = heartbeat or stg.HEARTBEAT
+        self.heartbeat = heartbeat
 
         self.channel = None
         self.credentials = None
@@ -40,13 +42,14 @@ class RabbitMQ:
         self.connection = None
         self.configuration = None
 
-    def perform_publishing_in_loop(self, message='no message'):
+    def perform_publishing_in_loop(self,
+                                   message):
         while True:
             try:
                 return self.perform_publishing(message)
             except Exception:
-                stg.report.info(format_exc())
-                sleep(stg.SLEEP_TIME_AFTER_PUBLISHING_ERROR)
+                report.info(format_exc())
+                sleep(STG.TIME_OUT)
 
     def perform_publishing(self, message):
         self._initialize()
@@ -59,8 +62,8 @@ class RabbitMQ:
             try:
                 self.perform_consuming()
             except Exception:
-                stg.report.info(format_exc())
-                sleep(stg.SLEEP_TIME_AFTER_CONSUMING_ERROR)
+                report.info(format_exc())
+                sleep(STG.TIME_OUT)
 
     def perform_consuming(self):
         self._initialize()
@@ -113,7 +116,7 @@ class RabbitMQ:
                                    body=message,
                                    properties=self.basic_properties)
 
-        stg.report.info("{} published to {}".format(message, self.queue))
+        report.info("{} published to {}".format(message, self.queue))
 
     def _basic_consume(self):
         self.channel.basic_consume(queue=self.queue,
@@ -123,7 +126,7 @@ class RabbitMQ:
         try:
             self.channel.start_consuming()
         except KeyboardInterrupt:
-            print('Interrupted')
+            report.info(format_exc())
             exit_()
 
     def close_connection(self):

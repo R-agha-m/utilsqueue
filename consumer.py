@@ -1,18 +1,17 @@
-from .rabbitmq import RabbitMQ
-from callback_function.callback_function import Callback
-from ..apply_decorators_on_cls_methods_decorators import apply_decorators_on_cls_methods_decorators
-from ..loggingUtils.logger_decorator import logger_decorator
-import stg
+try:
+    from .rabbitmq import RabbitMQ
+    from .stg import STG
+except ImportError:
+    from rabbitmq import RabbitMQ
+    from stg import STG
 
 
-# @apply_decorators_on_cls_methods_decorators((logger_decorator, (), {}))
 class Consumer:
     def __init__(self,
                  callback_func,
-                 queue_name=None):
-
+                 queue_name=STG.QUEUE_NAME):
         self.callback_func = callback_func
-        self.queue_name = queue_name or stg.QUEUE_NAME
+        self.queue_name = queue_name
 
         self.rabbitmq_consumer = None
 
@@ -27,7 +26,7 @@ class Consumer:
     def _start_consuming(self):
         self.rabbitmq_consumer.perform_consuming_in_loop()
 
-
-if __name__ == "__main__":
-    my_consumer = Consumer()
-    my_consumer.perform()
+#
+# if __name__ == "__main__":
+#     my_consumer = Consumer()
+#     my_consumer.perform()
