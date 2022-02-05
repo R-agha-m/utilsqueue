@@ -1,9 +1,5 @@
 from pika import PlainCredentials, ConnectionParameters, BlockingConnection, BasicProperties
-from traceback import format_exc
-from time import sleep
-from types import FunctionType
-from utils_common.exit_ import exit_
-
+from utils_common.manage_exceptions_decorator import manage_exceptions_decorator
 try:
     from .stg import STG, report
 except ImportError:
@@ -11,64 +7,24 @@ except ImportError:
 
 
 class RabbitMQ:
-    def __init__(self,
-                 username: str = STG.BROKER["username"],
-                 password: str = STG.BROKER["password"],
-                 host: str = STG.BROKER["host"],
-                 port: int = STG.BROKER["port"],
-                 virtual_host: str = STG.BROKER["virtual_host"],
-                 prefetch_count: int = STG.BROKER["prefetch_count"],
-                 queue_name: str = STG.BROKER["publish_queue_name"],
-                 is_durable: bool = STG.BROKER["is_durable"],
-                 callback_function: FunctionType = None,
-                 heartbeat: int = STG.BROKER["heartbeat"]):
+    def __init__(self, **kwargs):
+        self.username = STG.BROKER.get("username") or STG.BROKER["USERNAME"]
+        self.password = STG.BROKER.get("password") or STG.BROKER["PASSWORD"]
+        self.host = STG.BROKER.get("host") or STG.BROKER["HOST"]
+        self.port = STG.BROKER.get("port") or STG.BROKER["PORT"]
+        self.vhost = STG.BROKER.get("vhost") or STG.BROKER["VHOST"]
 
-        self.username = username
-        self.password = password
-        self.host = host
-        self.port = port
-        self.virtual_host = virtual_host
-        self.prefetch_count = prefetch_count
-        self.queue = queue_name
-        self.durable = is_durable
-        self.callback_function = \
-            lambda ch, method, properties, body: callback_function(ch, method, properties, body, self)
-        self.heartbeat = heartbeat
+        self.prefetch_count = STG.BROKER.get("prefetch_count") or STG.BROKER.get("PREFETCH_COUNT", 1)
+        self.is_durable = STG.BROKER.get("is_durable") or STG.BROKER.get("IS_DURABLE", True)
+        self.heartbeat = STG.BROKER.get("heartbeat") or STG.BROKER.get("HEARTBEAT", 1 * 60 * 60)
+
+        self.queue = STG.BROKER.get("queue") or STG.BROKER["QUEUE"]
 
         self.channel = None
         self.credentials = None
         self.parameters = None
         self.basic_properties = None
         self.connection = None
-        self.configuration = None
-
-    def perform_publishing_in_loop(self,
-                                   message):
-        while True:
-            try:
-                return self.perform_publishing(message)
-            except Exception:
-                report.info(format_exc())
-                sleep(STG.TIME_OUT)
-
-    def perform_publishing(self, message):
-        self._initialize()
-        self._create_basic_properties()
-        self._declare_exchange()
-        self._basic_publish(message)
-
-    def perform_consuming_in_loop(self):
-        while True:
-            try:
-                self.perform_consuming()
-            except Exception:
-                report.info(format_exc())
-                sleep(STG.TIME_OUT)
-
-    def perform_consuming(self):
-        self._initialize()
-        self._basic_consume()
-        self._start_consuming()
 
     def _initialize(self):
         self._create_credentials_parameters()
@@ -85,7 +41,7 @@ class RabbitMQ:
     def _create_connection_parameters(self):
         self.parameters = ConnectionParameters(host=self.host,
                                                port=self.port,
-                                               virtual_host=self.virtual_host,
+                                               virtual_host=self.vhost,
                                                credentials=self.credentials,
                                                heartbeat=self.heartbeat)
 
@@ -105,29 +61,14 @@ class RabbitMQ:
 
     def _declare_queue(self):
         self.channel.queue_declare(queue=self.queue,
-                                   durable=self.durable)
+                                   durable=self.is_durable)
 
     def _create_basic_properties(self):
         self.basic_properties = BasicProperties(delivery_mode=2, )
 
-    def _basic_publish(self, message: str):
-        self.channel.basic_publish(exchange=self.exchange,
-                                   routing_key=self.queue,
-                                   body=message,
-                                   properties=self.basic_properties)
-
-        report.info("{} published to {}".format(message, self.queue))
-
-    def _basic_consume(self):
-        self.channel.basic_consume(queue=self.queue,
-                                   on_message_callback=self.callback_function)  # , auto_ack=True
-
-    def _start_consuming(self):
-        try:
-            self.channel.start_consuming()
-        except KeyboardInterrupt:
-            report.info(format_exc())
-            exit_()
-
     def close_connection(self):
         self.connection.close()
+
+    @manage_exceptions_decorator()
+    def __del__(self):
+        self.close_connection()
